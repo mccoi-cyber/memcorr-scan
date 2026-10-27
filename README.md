@@ -76,7 +76,39 @@ memcorr-scan: 1 file(s) scanned, 5 finding(s)
   -> 'ptr' was passed to free() earlier in function 'uaf_example' ...
 ```
 
-## A Real Problem and How I Solved It
+ Validation Against a Known-Vulnerable Codebase
+
+Testing against a hand-written sample file proves the rules fire — it doesn't prove the
+tool is useful against real code. So I ran it against
+[Damn Vulnerable C Program](https://github.com/hardik05/Damn_Vulnerable_C_Program), a
+public C codebase built specifically to contain realistic memory-corruption bugs for
+practicing tools like fuzzers and static analyzers.memcorr-scan: 16 file(s) scanned, 10 finding(s)
+
+critical: 5 high: 5 medium: 0 low: 0
+
+[CRITICAL] Possible use-after-free of ‘buff1’ (CWE-416)
+dvcp.c:67
+buff1[0]='a';
+-> ‘buff1’ was passed to free() earlier in function ‘ProcessImage’ and is referenced
+again here with no reassignment or null-guard detected in between.
+
+[HIGH] Possible double free of ‘buff1’ (CWE-415)
+dvcp.c:62
+free(buff1);
+-> ‘buff1’ appears to be passed to free() twice in function ‘ProcessImage’ with no
+reassignment in between.
+
+
+It correctly identified a genuine **double-free followed by a use-after-free** inside the
+codebase's `ProcessImage` function — the same function, copy-pasted across 5 files in the
+repo (`dvcp.c`, `imgRead.c`, and 3 fuzzing-harness variants under `libAFL/`), which is why
+the same two-bug pattern surfaces 10 times rather than being 10 distinct bugs. A
+double-free-then-use-after-free chain in image-processing code is exactly the bug class
+responsible for real-world CVEs in image parsing libraries (a malicious input file
+triggers the bug; if an attacker controls what gets written into the freed memory, it can
+lead to code execution) — so this wasn't just a clean pattern match, it was the tool
+correctly flagging a security-relevant bug class in code built to resemble a real
+vulnerable target.## A Real Problem and How I Solved It
 
 **The problem:** a pure-regex approach to "dangerous function" detection is easy, but a
 regex has no concept of *control flow* — it can't tell the difference between
